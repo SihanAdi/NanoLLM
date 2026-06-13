@@ -1,0 +1,105 @@
+# 分词器配置文件
+vocab_size: 6400
+special_tokens_num: 36
+model_max_length: 131072
+
+# 行为配置
+# 意味着模型不会自动添加开始/结束标记，这通常在chat template中手动控制
+add_bos_token: false  # 不自动添加BOS token
+add_eos_token: false  # 不自动添加EOS token
+
+add_prefix_space: false  # 编码时是否在文本前加空格，影响编码一致性
+# 设为True时
+  # tokenizer.encode("Hello")  # 可能得到 [" Hello"] (带空格)
+  # tokenizer.encode(" Hello") # 得到 [" Hello"] (相同)
+
+clean_up_tokenization_spaces: false  # 控制解码时是否清理多余空格
+# 设为False保留原始空格位置，对代码、数学公式等对空格敏感的内容很重要
+
+legacy: true             # 使用老版tokenizer行为（兼容性）
+model_max_length: 131072  # 最大序列长度128K
+sp_model_kwargs: {}      # SentencePiece模型参数（预留）
+spaces_between_special_tokens: false  # 特殊token间不加空格
+tokenizer_class: "PreTrainedTokenizerFast"  # 类名（用于自动加载）
+
+# 特殊token配置
+special_tokens:
+  # 基础控制token
+  base:
+  # 文本类
+    - "<|endoftext|>" # 表示生成结束
+    # 用来包裹 system、user、assistant 等内容
+    # 例：<|im_start|>user\nhello<|im_end|>
+    - "<|im_start|>"
+    - "<|im_end|>"
+  # 视觉定位与区域描述类
+    # 标记要引用的物体名称
+    - "<|object_ref_start|>"
+    - "<|object_ref_end|>"
+    # 标记 bbox 坐标（归一化）
+    # 典型组合：<|object_ref_start|>猫<|object_ref_end|><|box_start|>(0.1,0.2,0.4,0.5)<|box_end|>
+    #   表示“猫”位于该框内，常用于指代检测或区域描述任务
+    - "<|box_start|>"
+    - "<|box_end|>"
+    # 四边形框开始 / 结束，用于不一定是水平矩形的区域（如旋转框或多边形）
+    - "<|quad_start|>"
+    - "<|quad_end|>"
+  # 视觉 / 图像 / 视频占位符（多模态输入）
+    # 在 LLM 内部，将图像特征向量包起来，与文本区分
+    - "<|vision_start|>"
+    - "<|vision_end|>"
+    - "<|vision_pad|>"
+    - "<|image_pad|>"
+    - "<|video_pad|>"
+  # 音频 / 语音相关（Audio / TTS 模型）
+    - "<|audio_start|>"
+    - "<|audio_end|>"
+    - "<|audio_pad|>"
+    - "<tts_pad>"
+    # 告知 TTS 模型：接下来是你要朗读的文本
+    - "<tts_text_bos>"
+    # 朗读文本结束
+    - "<tts_text_eod>"
+    # 用于一次合成一个句子，而非整段
+    - "<tts_text_bos_single>"
+    
+  
+  # 工具调用token
+  tools:
+    - "<tool_call>"
+    - "</tool_call>"
+    - "<tool_response>"
+    - "</tool_response>"
+    - "<think>"
+    - "</think>"
+
+# 模型角色token映射
+role_tokens:
+  bos: "<|im_start|>"
+  eos: "<|im_end|>"
+  pad: "<|endoftext|>"
+  unk: "<|endoftext|>"
+
+# 多模态token
+multi_modal:
+  image_token: "<|image_pad|>"
+  video_token: "<|video_pad|>"
+  audio_token: "<|audio_pad|>"
+  # 视觉边界
+  vision_bos: "<|vision_start|>"
+  vision_eos: "<|vision_end|>"
+  audio_bos: "<|audio_start|>"
+  audio_eos: "<|audio_end|>"
+
+
+# 对话模板
+chat_template: "{%- if tools %}\n    {{- '<|im_start|>system\\n' }}\n    {%- if messages[0].role == 'system' %}\n        {{- messages[0].content + '\\n\\n' }}\n    {%- endif %}\n    {{- \"# Tools\\n\\nYou may call one or more functions to assist with the user query.\\n\\nYou are provided with function signatures within <tools></tools> XML tags:\\n<tools>\" }}\n    {%- for tool in tools %}\n        {{- \"\\n\" }}\n        {{- tool | tojson }}\n    {%- endfor %}\n    {{- \"\\n</tools>\\n\\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\\n<tool_call>\\n{\\\"name\\\": <function-name>, \\\"arguments\\\": <args-json-object>}\\n</tool_call><|im_end|>\\n\" }}\n{%- else %}\n    {%- if messages[0].role == 'system' %}\n        {{- '<|im_start|>system\\n' + messages[0].content + '<|im_end|>\\n' }}\n    {%- endif %}\n{%- endif %}\n{%- set ns = namespace(multi_step_tool=true, last_query_index=messages|length - 1) %}\n{%- for message in messages[::-1] %}\n    {%- set index = (messages|length - 1) - loop.index0 %}\n    {%- if ns.multi_step_tool and message.role == \"user\" and message.content is string and not(message.content.startswith('<tool_response>') and message.content.endswith('</tool_response>')) %}\n        {%- set ns.multi_step_tool = false %}\n        {%- set ns.last_query_index = index %}\n    {%- endif %}\n{%- endfor %}\n{%- for message in messages %}\n    {%- if message.content is string %}\n        {%- set content = message.content %}\n    {%- else %}\n        {%- set content = '' %}\n    {%- endif %}\n    {%- if (message.role == \"user\") or (message.role == \"system\" and not loop.first) %}\n        {{- '<|im_start|>' + message.role + '\\n' + content + '<|im_end|>' + '\\n' }}\n    {%- elif message.role == \"assistant\" %}\n        {%- set reasoning_content = '' %}\n        {%- if message.reasoning_content is string %}\n            {%- set reasoning_content = message.reasoning_content %}\n        {%- else %}\n            {%- if '</think>' in content %}\n                {%- set reasoning_content = content.split('</think>')[0].rstrip('\\n').split('<think>')[-1].lstrip('\\n') %}\n                {%- set content = content.split('</think>')[-1].lstrip('\\n') %}\n            {%- endif %}\n        {%- endif %}\n        {%- if true %}\n            {{- '<|im_start|>' + message.role + '\\n<think>\\n' + reasoning_content.strip('\\n') + '\\n</think>\\n\\n' + content.lstrip('\\n') }}\n        {%- endif %}\n        {%- if message.tool_calls %}\n            {%- for tool_call in message.tool_calls %}\n                {%- if (loop.first and content) or (not loop.first) %}\n                    {{- '\\n' }}\n                {%- endif %}\n                {%- if tool_call.function %}\n                    {%- set tool_call = tool_call.function %}\n                {%- endif %}\n                {{- '<tool_call>\\n{\"name\": \"' }}\n                {{- tool_call.name }}\n                {{- '\", \"arguments\": ' }}\n                {%- if tool_call.arguments is string %}\n                    {{- tool_call.arguments }}\n                {%- else %}\n                    {{- tool_call.arguments | tojson }}\n                {%- endif %}\n                {{- '}\\n</tool_call>' }}\n            {%- endfor %}\n        {%- endif %}\n        {{- '<|im_end|>\\n' }}\n    {%- elif message.role == \"tool\" %}\n        {%- if loop.first or (messages[loop.index0 - 1].role != \"tool\") %}\n            {{- '<|im_start|>user' }}\n        {%- endif %}\n        {{- '\\n<tool_response>\\n' }}\n        {{- content }}\n        {{- '\\n</tool_response>' }}\n        {%- if loop.last or (messages[loop.index0 + 1].role != \"tool\") %}\n            {{- '<|im_end|>\\n' }}\n        {%- endif %}\n    {%- endif %}\n{%- endfor %}\n{%- if add_generation_prompt %}\n    {{- '<|im_start|>assistant\\n' }}\n    {%- if open_thinking is defined and open_thinking is true %}\n        {{- '<think>\\n' }}\n    {%- else %}\n        {{- '<think>\\n\\n</think>\\n\\n' }}\n    {%- endif %}\n{%- endif %}"
+
+# 训练数据配置
+data:
+  path: "../dataset/sft_t2t_mini.jsonl"
+  encoding: "utf-8"
+
+# 输出配置
+output:
+  dir: "../trained_tokenizer"
