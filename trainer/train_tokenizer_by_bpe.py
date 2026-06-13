@@ -72,17 +72,58 @@ def train_tokenizer(conf: TokenizerConfig):
     tokenizer.model.save(tokenizer_dir)
     
     # 8. 后处理 + 设置配置文件
-    # with open(tokenizer_json_path, "r", encoding="utf-8") as f:
-    #     tokenizer_data = json.load(f)
-    # # 将 additional 和 buffer token 的 special 属性设为 false
-    # for token_info in tokenizer_data.get("added_tokens", []):
-    #     if token_info["content"] not in special_token_list:
-    #         token_info["special"] = False
-    # with open(tokenizer_json_path, "w", encoding="utf-8") as f:
-    #     json.dumps(tokenizer_data, f, ensure_ascii=False, indent=2)
+    with open(tokenizer_json_path, "r", encoding="utf-8") as f:
+        tokenizer_data = json.load(f)
+    # 将 additional 和 buffer token 的 special 属性设为 false
+    for token_info in tokenizer_data.get("added_tokens", []):
+        if token_info["content"] not in special_token_list:
+            token_info["special"] = False
+    with open(tokenizer_json_path, "w", encoding="utf-8") as f:
+        json.dump(tokenizer_data, f, ensure_ascii=False, indent=2)
         
+    # 用于HuggingFace格式的配置，映射token ID到其属性
+    added_tokens_decoder = {}
+    for _, token in enumerate(all_special_tokens):
+        idx = tokenizer.token_to_id(token)
+        added_tokens_decoder[str(idx)] = {
+            "content": token,
+            "lstrip": False,
+            "normalized": False,
+            "rstrip": False,
+            "single_word": False,
+            "special": True if token in special_token_list else False
+        }
     
+    config = {
+        "add_bos_token": conf.add_bos_token,
+        "add_eos_token": conf.add_eos_token,
+        "add_prefix_space": conf.add_prefix_space,
+        "added_tokens_decoder": added_tokens_decoder,
+        "additional_special_tokens": [t for t in special_token_list if t not in ["<|endoftext|>"]],
+        "bos_token": conf.role_tokens["bos"],
+        "clean_up_tokenization_spaces": conf.clean_up_tokenization_spaces,
+        "eos_token": conf.role_tokens["eos"],
+        "legacy": conf.legacy,
+        "model_max_length": conf.model_max_length,
+        "pad_token": conf.role_tokens["pad"],
+        "sp_model_kwargs": {},
+        "spaces_between_special_tokens": False,
+        "unk_token": conf.role_tokens["unk"],
+        "image_token": conf.multi_modal["image_token"],
+        "audio_token": conf.multi_modal["audio_token"],
+        "video_token": conf.multi_modal["video_token"],
+        "vision_bos_token": conf.multi_modal["vision_bos"],
+        "vision_eos_token": conf.multi_modal["vision_eos"],
+        "audio_bos_token": conf.multi_modal["audio_bos"],
+        "audio_eos_token": conf.multi_modal["audio_eos"],
+        "chat_template": conf.chat_template,
+        "tokenizer_class": conf.tokenizer_class
+    }
 
+    with open(os.path.join(tokenizer_dir, "tokenizer_config.json"), "w", encoding="utf-8") as f:
+        json.dump(config, f, ensure_ascii=False, indent=4)
+    print("Tokenizer training completed.")
+        
 
 if __name__=="__main__":
     config_path = project_root / "config" / "tokenizer_config.yaml"
