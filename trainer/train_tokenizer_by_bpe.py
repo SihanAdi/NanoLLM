@@ -41,7 +41,7 @@ def train_tokenizer(conf: TokenizerConfig):
     # 3. 设置 special_tokens
     special_tokens = conf.special_tokens
     special_token_list = special_tokens["base"] if special_tokens else []
-    additional_token_list = special_tokens["tool"] if special_tokens else []
+    additional_token_list = special_tokens["tools"] if special_tokens else []
     # 预留一定数量的token位置, 方便未来扩展功能而不需要重新训练分词器
     num_buffer = conf.special_tokens_num - len(special_token_list) - len(additional_token_list)
     buffer_token_list = [f"<|buffer{i}|>" for i in range(1, num_buffer + 1)]
